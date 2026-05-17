@@ -14,5 +14,4 @@ public class ChatRequest {
    }
 
    public String question;
-   public String role;
 }
