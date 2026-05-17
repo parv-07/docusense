@@ -1,5 +1,6 @@
 package com.parv.docqa.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parv.docqa.config.GeminiConfig;
 import com.parv.docqa.dto.ChatMessage;
 import com.parv.docqa.dto.ChatRequest;
@@ -8,6 +9,7 @@ import com.parv.docqa.service.DocumentService;
 
 import com.parv.docqa.service.GeminiService;
 import com.parv.docqa.service.SessionService;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,7 +18,6 @@ import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -40,12 +41,13 @@ public class ChatController {
         this.geminiConfig = geminiConfig;
         this.documentService = documentService;
         this.sessionService = sessionService;
-        this.objectMapper=objectMapper;
+        this.objectMapper = objectMapper;
     }
-//    documentService.doSomething();
 
-    @PostMapping("/chat")
+    //    documentService.doSomething();
     @Operation(summary = "Talking Tom", description = "Normal chat bot to chat")
+    @PostMapping("/chat")
+    @RateLimiter(name = "basicApi", fallbackMethod = "rateLimitFallback")
     public ResponseEntity<Map<String, String>> chat(@RequestBody ChatRequest request) {
 
         // Build request body for Gemini API
@@ -74,8 +76,10 @@ public class ChatController {
         return ResponseEntity.ok(Map.of("answer", answer));
 
     }
+
     @Operation(summary = "Upload PDF and ask", description = "Upload any PDF document and ask a question about it")
     @PostMapping("/upload-and-ask")
+    @RateLimiter(name="resumeApi")
     public ResponseEntity<Map<Object, Object>> uploadAndAsk(@RequestParam("file") MultipartFile file, @RequestParam("question") String question) throws Exception {
         System.out.println("The multipart" + file);
         // Step 1 - Extract text from PDF
@@ -88,12 +92,14 @@ public class ChatController {
         System.out.println("the answer is" + answer);
         return ResponseEntity.ok().body(Map.of("answer", answer));
     }
+
     @Operation(summary = "Create session", description = "Create a new conversation session for multi-turn Q&A")
     @PostMapping("/session/create")
     public ResponseEntity<Map<String, String>> createSession() {
         String sessionId = sessionService.createSession();
         return ResponseEntity.ok(Map.of("sessionId", sessionId));
     }
+
     @Operation(summary = "Chat with memory", description = "Ask questions with conversation history maintained per session")
     @PostMapping("/session/chat")// chat with session
     public ResponseEntity<Map<String, String>> sessionChat(@RequestParam("sessionId") String sessionId, @RequestBody ChatRequest request) {
@@ -105,6 +111,7 @@ public class ChatController {
                 "answer", answer
         ));
     }
+
     @Operation(summary = "Clear session", description = "Delete a conversation session and its history")
     @PostMapping("session/{sessionId}")
     public ResponseEntity<Map<String, String>> clearSession(@PathVariable String sessionId) {
@@ -117,21 +124,23 @@ public class ChatController {
     public ResponseEntity<List<ChatMessage>> getSessionChatBySessionId(@RequestParam("sessionId") String sessionId) {
         return ResponseEntity.ok(sessionService.getChatHistory(sessionId));
     }
+
     @PostMapping("resume/analyze")
     @Operation(summary = "Analyze resume", description = "Upload a resume PDF and provide a job description to get a detailed skill-gap analysis")
-    public ResponseEntity<?> analyze(@RequestParam("file") MultipartFile file,@RequestParam("request") String request) throws Exception{
-          if(file.isEmpty()){
-              throw new IllegalArgumentException("File Cannot be Empty....❌");
-          }
-          if (request.isEmpty() || request.isBlank()){
-              throw new IllegalArgumentException("Job description cannot be blank");
-          }
-          String fileName=file.getOriginalFilename();
-          if(fileName == null || !fileName.endsWith(".pdf")){
-              throw new IllegalArgumentException("Only PDF file are supported");
-          }
-          String content = documentService.extractFile(file);
-          String prompt = """
+    @RateLimiter(name="resumeApi")
+    public ResponseEntity<ResumeAnalysisResponse> analyze(@RequestParam("file") MultipartFile file, @RequestParam("request") String request) throws Exception {
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("File Cannot be Empty....❌");
+        }
+        if (request.isEmpty() || request.isBlank()) {
+            throw new IllegalArgumentException("Job description cannot be blank");
+        }
+        String fileName = file.getOriginalFilename();
+        if (fileName == null || !fileName.endsWith(".pdf")) {
+            throw new IllegalArgumentException("Only PDF file are supported");
+        }
+        String content = documentService.extractFile(file);
+        String prompt = """
                 You are an expert career coach and resume analyzer.
                 
                 Analyze the following resume against the job description and respond ONLY with a JSON object. No explanation, no markdown, just raw JSON.
@@ -151,11 +160,15 @@ public class ChatController {
                   "recommendations": ["recommendation1", "recommendation2"]
                 }
                 """.formatted(content, request);
-          String response = geminiService.callGemini(prompt);
-          ResumeAnalysisResponse result =
-                  objectMapper.readValue(response, ResumeAnalysisResponse.class);
-          return ResponseEntity.ok(result);
+        String response = geminiService.callGemini(prompt);
+        ResumeAnalysisResponse result =
+                objectMapper.readValue(response, ResumeAnalysisResponse.class);
+        return ResponseEntity.ok(result);
 
     }
-
+    @PostMapping("/name")
+    @RateLimiter(name="resumeApi")
+   public ResponseEntity<String> getname(){
+        return ResponseEntity.ok("Parv is best in the world");
+    }
 }

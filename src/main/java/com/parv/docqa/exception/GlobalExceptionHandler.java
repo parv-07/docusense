@@ -1,6 +1,7 @@
 package com.parv.docqa.exception;
 
 import com.parv.docqa.dto.ErrorResponse;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import org.apache.coyote.Response;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,16 @@ public class GlobalExceptionHandler {
                         500,
                         "Internal Server Error",
                         "Something went wrong : " + ex.getMessage(),
+                        LocalDateTime.now().toString()
+                ));
+    }
+    @ExceptionHandler(RequestNotPermitted.class)
+    public ResponseEntity<ErrorResponse> handleRateLimit(RequestNotPermitted ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(new ErrorResponse(
+                        429,
+                        "Too Many Requests",
+                        "Rate limit exceeded. Please try again after 1 minute.",
                         LocalDateTime.now().toString()
                 ));
     }
